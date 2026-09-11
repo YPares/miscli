@@ -24,4 +24,9 @@ pub struct Args {
     /// per-word time.
     #[arg(long, default_value_t = timing::DEFAULT_SENTENCE_PAUSE)]
     pub sentence_pause: f64,
+
+    /// Extra display time proportional to `sqrt(word length)`, matching
+    /// pasky/speedread's `$lentime`. 0 disables it.
+    #[arg(long, default_value_t = timing::DEFAULT_LENGTH_FACTOR)]
+    pub length_pause: f64,
 }

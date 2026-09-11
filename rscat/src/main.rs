@@ -18,11 +18,12 @@ use crate::cli::Args;
 fn main() -> io::Result<()> {
     let args = Args::parse();
     let words = text::load_words(args.file.as_deref())?;
-    let pauses = timing::Pauses {
+    let pace = timing::Pace {
         clause: args.clause_pause,
         sentence: args.sentence_pause,
+        length: args.length_pause,
     };
-    let mut reader = Reader::new(words, args.wpm, pauses);
+    let mut reader = Reader::new(words, args.wpm, pace);
 
     if reader.is_empty() {
         eprintln!("rscat: no words to read");

@@ -1,23 +1,23 @@
 use std::time::Duration;
 
-use crate::timing::{self, Pauses};
+use crate::timing::{self, Pace};
 
 /// Reading state: the full word list, the current position, the speed and the
-/// punctuation-pause configuration.
+/// timing/pause configuration.
 pub struct Reader {
     words: Vec<String>,
     index: usize,
     wpm: u32,
-    pauses: Pauses,
+    pace: Pace,
 }
 
 impl Reader {
-    pub fn new(words: Vec<String>, wpm: u32, pauses: Pauses) -> Self {
+    pub fn new(words: Vec<String>, wpm: u32, pace: Pace) -> Self {
         Self {
             words,
             index: 0,
             wpm,
-            pauses,
+            pace,
         }
     }
 
@@ -46,10 +46,10 @@ impl Reader {
     }
 
     /// How long the current word should stay on screen, including any
-    /// punctuation pause. Zero once the text is exhausted.
+    /// punctuation pause and length scaling. Zero once the text is exhausted.
     pub fn tick(&self) -> Duration {
         match self.current() {
-            Some(word) => timing::word_delay(word, self.wpm, self.pauses),
+            Some(word) => timing::word_delay(word, self.wpm, self.pace),
             None => Duration::ZERO,
         }
     }
@@ -64,7 +64,7 @@ impl Reader {
     }
 
     /// Estimated time left at the configured speed. This ignores punctuation
-    /// pauses, so it is a lower bound on the real remaining time.
+    /// and length pauses, so it is a lower bound on the real remaining time.
     pub fn remaining(&self) -> Duration {
         let remaining_words = self.words.len().saturating_sub(self.index);
         Duration::from_secs_f64(remaining_words as f64 * 60.0 / f64::from(self.wpm))
@@ -79,7 +79,7 @@ mod tests {
         Reader::new(
             words.iter().map(|w| (*w).to_string()).collect(),
             wpm,
-            Pauses::default(),
+            Pace::default(),
         )
     }
 
@@ -118,9 +118,29 @@ mod tests {
 
     #[test]
     fn tick_includes_punctuation_pause() {
-        assert_eq!(reader(&["dog"], 300).tick(), Duration::from_millis(200));
-        assert_eq!(reader(&["dog,"], 300).tick(), Duration::from_millis(300));
-        assert_eq!(reader(&["dog."], 300).tick(), Duration::from_millis(400));
-        assert_eq!(reader(&[], 300).tick(), Duration::ZERO);
+        // Length term disabled so the multiples are exact.
+        let pace = Pace {
+            length: 0.0,
+            ..Pace::default()
+        };
+        let reader = |words: &[&str]| -> Reader {
+            Reader::new(words.iter().map(|w| (*w).to_string()).collect(), 300, pace)
+        };
+        assert_eq!(reader(&["dog"]).tick(), Duration::from_millis(200));
+        assert_eq!(reader(&["dog,"]).tick(), Duration::from_millis(300));
+        assert_eq!(reader(&["dog."]).tick(), Duration::from_millis(400));
+        assert_eq!(reader(&[]).tick(), Duration::ZERO);
+    }
+
+    #[test]
+    fn tick_scales_with_word_length() {
+        let pace = Pace {
+            clause: 1.0,
+            sentence: 1.0,
+            length: 0.5,
+        };
+        // 1 + 0.5*sqrt(4) = 2.0 -> 400ms at 300 wpm.
+        let r = Reader::new(vec!["abcd".to_string()], 300, pace);
+        assert_eq!(r.tick(), Duration::from_millis(400));
     }
 }

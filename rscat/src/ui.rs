@@ -8,6 +8,10 @@ use crate::app::Reader;
 use crate::orp;
 use crate::timing;
 
+/// Rows needed by the UI: word, progress bar, stats.
+/// Must match the vertical layout in [`draw`].
+pub const HEIGHT: u16 = 3;
+
 pub fn draw(frame: &mut Frame, reader: &Reader) {
     let [stage, bar, status] = Layout::vertical([
         Constraint::Fill(1),
@@ -71,4 +75,46 @@ fn render_status(frame: &mut Frame, reader: &Reader, area: Rect) {
         timing::format_eta(reader.remaining()),
     );
     frame.render_widget(Paragraph::new(text).centered().dim(), area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::style::Modifier;
+
+    const WIDTH: u16 = 30;
+
+    fn row(buffer: &ratatui::buffer::Buffer, y: u16) -> String {
+        (0..WIDTH)
+            .map(|x| buffer.cell((x, y)).map_or(" ", |cell| cell.symbol()))
+            .collect()
+    }
+
+    #[test]
+    fn renders_three_rows_with_pivot_and_status() {
+        let mut terminal = Terminal::new(TestBackend::new(WIDTH, HEIGHT)).unwrap();
+        let reader = Reader::new(vec!["fox".to_string()], 60);
+        terminal.draw(|frame| draw(frame, &reader)).unwrap();
+        let buffer = terminal.backend().buffer();
+
+        // Word row: pivot "o" anchored a third of the width in (x = 10).
+        assert_eq!(buffer.cell((9, 0)).unwrap().symbol(), "f");
+        assert_eq!(buffer.cell((10, 0)).unwrap().symbol(), "o");
+        assert_eq!(buffer.cell((11, 0)).unwrap().symbol(), "x");
+        let pivot = buffer.cell((10, 0)).unwrap();
+        assert!(pivot.modifier.contains(Modifier::BOLD));
+        assert_eq!(pivot.fg, Color::Red);
+
+        // Progress bar row and stats row.
+        assert!(
+            row(buffer, 1).contains("0%"),
+            "progress row: {:?}",
+            row(buffer, 1)
+        );
+        let status = row(buffer, 2);
+        assert!(status.contains("0/1"), "status row: {status:?}");
+        assert!(status.contains("60 wpm"), "status row: {status:?}");
+    }
 }

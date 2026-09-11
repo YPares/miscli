@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use clap::Parser;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use ratatui::{TerminalOptions, Viewport};
 
 use crate::app::Reader;
 use crate::cli::Args;
@@ -23,7 +24,12 @@ fn main() -> io::Result<()> {
         eprintln!("rscat: no words to read");
         Ok(())
     } else {
-        let mut terminal = ratatui::init();
+        // Inline viewport: no alternate screen, so the three rows stay in the
+        // normal terminal flow instead of taking over the whole window.
+        let options = TerminalOptions {
+            viewport: Viewport::Inline(ui::HEIGHT),
+        };
+        let mut terminal = ratatui::init_with_options(options);
         let result = run(&mut terminal, &mut reader);
         ratatui::restore();
         result

@@ -35,13 +35,14 @@ fn render_word(frame: &mut Frame, reader: &Reader, stage: Rect) {
     }
 }
 
-/// Builds the word line so its pivot character lands on the stage's pivot
-/// column (one third in), clamping the whole word inside the stage.
+/// Builds the word line so its pivot character lands on the horizontal center
+/// of the stage, aligning with the centered gauge label and stats. The whole
+/// word is clamped inside the stage.
 fn word_line(word: &str, stage: Rect) -> Line<'static> {
     let (left, pivot, right) = orp::split_word(word);
     let left_width = left.chars().count() as u16;
     let word_width = left_width + 1 + right.chars().count() as u16;
-    let pivot_x = stage.x + stage.width / 3;
+    let pivot_x = stage.x + stage.width / 2;
     let max_start = stage.right().saturating_sub(word_width);
     let start = pivot_x
         .saturating_sub(left_width)
@@ -99,11 +100,12 @@ mod tests {
         terminal.draw(|frame| draw(frame, &reader)).unwrap();
         let buffer = terminal.backend().buffer();
 
-        // Word row: pivot "o" anchored a third of the width in (x = 10).
-        assert_eq!(buffer.cell((9, 0)).unwrap().symbol(), "f");
-        assert_eq!(buffer.cell((10, 0)).unwrap().symbol(), "o");
-        assert_eq!(buffer.cell((11, 0)).unwrap().symbol(), "x");
-        let pivot = buffer.cell((10, 0)).unwrap();
+        // Word row: pivot "o" anchored at the horizontal center (x = 15),
+        // on the same axis as the centered gauge label and stats.
+        assert_eq!(buffer.cell((14, 0)).unwrap().symbol(), "f");
+        assert_eq!(buffer.cell((15, 0)).unwrap().symbol(), "o");
+        assert_eq!(buffer.cell((16, 0)).unwrap().symbol(), "x");
+        let pivot = buffer.cell((15, 0)).unwrap();
         assert!(pivot.modifier.contains(Modifier::BOLD));
         assert_eq!(pivot.fg, Color::Red);
 

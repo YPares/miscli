@@ -1,13 +1,17 @@
 use ratatui::Frame;
+use ratatui::buffer::{Buffer, Cell};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Gauge, Paragraph};
+use ratatui::widgets::{Gauge, Paragraph, Widget};
 use tui_big_text::{BigText, PixelSize};
 
 use crate::app::Reader;
 use crate::orp;
 use crate::timing;
+
+/// Colour the previous word's glyphs are dimmed to when ghosting.
+const GHOST_COLOR: Color = Color::DarkGray;
 
 /// How the current word is drawn.
 #[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,30 +79,73 @@ pub fn height(font: Font) -> u16 {
     font.rows() + 1
 }
 
-pub fn draw(frame: &mut Frame, reader: &Reader, paused: bool, font: Font) {
+pub fn draw(frame: &mut Frame, reader: &Reader, paused: bool, font: Font, ghost: bool) {
     let [word, stats] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(frame.area());
 
-    render_word(frame, reader, word, font);
+    render_word(frame, reader, word, font, ghost);
     render_stats(frame, reader, stats, paused);
 }
 
-fn render_word(frame: &mut Frame, reader: &Reader, area: Rect, font: Font) {
+fn render_word(frame: &mut Frame, reader: &Reader, area: Rect, font: Font, ghost: bool) {
     match reader.current() {
         Some(word) if !area.is_empty() => match font.pixel_size() {
             None => {
                 frame.render_widget(Paragraph::new(word_line(word, area, font.advance())), area);
             }
             Some(pixel_size) => {
-                let big = BigText::builder()
-                    .pixel_size(pixel_size)
-                    .left_aligned()
-                    .lines(vec![word_line(word, area, font.advance())])
-                    .build();
-                frame.render_widget(big, area);
+                let current = big_buffer(word, area, font, pixel_size);
+                let previous = if ghost { reader.previous() } else { None };
+                match previous {
+                    Some(previous) => {
+                        let ghost_buffer = big_buffer(previous, area, font, pixel_size);
+                        compose(frame, area, &current, Some(&ghost_buffer));
+                    }
+                    None => compose(frame, area, &current, None),
+                }
             }
         },
         _ => {}
+    }
+}
+
+/// Renders `word` as pixel text into its own buffer, so it can be composited.
+fn big_buffer(word: &str, area: Rect, font: Font, pixel_size: PixelSize) -> Buffer {
+    let mut buffer = Buffer::empty(area);
+    BigText::builder()
+        .pixel_size(pixel_size)
+        .left_aligned()
+        .lines(vec![word_line(word, area, font.advance())])
+        .build()
+        .render(area, &mut buffer);
+    buffer
+}
+
+/// Copies `current` into the frame; where it has no ink, the previous word
+/// (`ghost`) shows through with only its foreground dimmed, preserving the
+/// glyph shapes (including partial-fill characters). Rendering through scratch
+/// buffers (rather than drawing ghost-then-word) keeps the ghost where the
+/// current word has no ink, since `BigText` writes the blank cells inside its
+/// glyph grid.
+fn compose(frame: &mut Frame, area: Rect, current: &Buffer, ghost: Option<&Buffer>) {
+    let buffer = frame.buffer_mut();
+    for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            let cur = current.cell((x, y)).unwrap();
+            let cell = if cur.symbol() != " " {
+                cur.clone()
+            } else {
+                match ghost.and_then(|ghost| ghost.cell((x, y))) {
+                    Some(prev) if prev.symbol() != " " => {
+                        let mut cell = prev.clone();
+                        cell.set_fg(GHOST_COLOR);
+                        cell
+                    }
+                    _ => Cell::new(" "),
+                }
+            };
+            *buffer.cell_mut((x, y)).unwrap() = cell;
+        }
     }
 }
 
@@ -175,14 +222,24 @@ mod tests {
     }
 
     /// Columns spanned by red (pivot) cells, or `None` if there are none.
-    fn red_columns(buffer: &ratatui::buffer::Buffer, width: u16, rows: u16) -> Option<(u16, u16)> {
-        let red = (0..rows).flat_map(|y| {
-            (0..width).filter(move |&x| buffer.cell((x, y)).unwrap().fg == Color::Red)
-        });
-        red.fold(None, |acc, x| match acc {
-            None => Some((x, x)),
-            Some((min, max)) => Some((min.min(x), max.max(x))),
-        })
+    /// Leftmost column containing a red (pivot) cell, or `None`.
+    ///
+    /// Only the left edge is asserted because the right edge depends on the
+    /// glyph's ink width (e.g. `o` and `d` end on different columns).
+    fn red_start(buffer: &ratatui::buffer::Buffer, width: u16, rows: u16) -> Option<u16> {
+        (0..rows)
+            .flat_map(|y| {
+                (0..width).filter(move |&x| buffer.cell((x, y)).unwrap().fg == Color::Red)
+            })
+            .min()
+    }
+
+    /// Word-row cells dimmed to the ghost colour.
+    fn ghost_count(buffer: &ratatui::buffer::Buffer, width: u16, rows: u16) -> usize {
+        (0..rows)
+            .flat_map(|y| (0..width).map(move |x| (x, y)))
+            .filter(|&(x, y)| buffer.cell((x, y)).unwrap().fg == GHOST_COLOR)
+            .count()
     }
 
     #[test]
@@ -198,7 +255,7 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(WIDTH, height)).unwrap();
         let reader = reader(&["fox"], 60);
         terminal
-            .draw(|frame| draw(frame, &reader, false, Font::Normal))
+            .draw(|frame| draw(frame, &reader, false, Font::Normal, false))
             .unwrap();
         let buffer = terminal.backend().buffer();
 
@@ -226,7 +283,7 @@ mod tests {
         reader.advance();
         reader.advance();
         terminal
-            .draw(|frame| draw(frame, &reader, false, Font::Normal))
+            .draw(|frame| draw(frame, &reader, false, Font::Normal, false))
             .unwrap();
         let buffer = terminal.backend().buffer();
 
@@ -242,7 +299,7 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(WIDTH, height)).unwrap();
         let reader = reader(&["fox"], 60);
         terminal
-            .draw(|frame| draw(frame, &reader, true, Font::Normal))
+            .draw(|frame| draw(frame, &reader, true, Font::Normal, false))
             .unwrap();
         let stats = row(terminal.backend().buffer(), 1, WIDTH);
         assert!(stats.contains("PAUSED"), "stats line: {stats:?}");
@@ -250,7 +307,7 @@ mod tests {
 
     #[test]
     fn big_font_pins_the_pivot_glyph_to_a_fixed_column() {
-        // width 80, HalfHeight: advance 8, pivot glyph pinned to columns 32..=39
+        // width 80, HalfHeight: advance 8, pivot glyph pinned starting at column 32
         // regardless of how many characters precede it.
         let font = Font::HalfHeight;
         let width = 80;
@@ -259,12 +316,12 @@ mod tests {
             let mut terminal = Terminal::new(TestBackend::new(width, rows)).unwrap();
             let reader = reader(&[word], 60);
             terminal
-                .draw(|frame| draw(frame, &reader, false, font))
+                .draw(|frame| draw(frame, &reader, false, font, false))
                 .unwrap();
             let buffer = terminal.backend().buffer();
             assert_eq!(
-                red_columns(buffer, width, font.rows()),
-                Some((32, 39)),
+                red_start(buffer, width, font.rows()),
+                Some(32),
                 "word {word:?}"
             );
             assert!(
@@ -272,5 +329,40 @@ mod tests {
                 "stats line missing for {word:?}"
             );
         }
+    }
+
+    #[test]
+    fn ghost_overlays_the_previous_word_behind_the_current_one() {
+        let font = Font::HalfHeight;
+        let width = 80;
+        let rows = height(font);
+        let word_rows = font.rows();
+        // current = "coding" (pivot ink starting at column 32), previous = "ab".
+        let mut reader = reader(&["ab", "coding"], 60);
+        reader.advance();
+
+        let render = |ghost: bool| -> Buffer {
+            let mut terminal = Terminal::new(TestBackend::new(width, rows)).unwrap();
+            terminal
+                .draw(|frame| draw(frame, &reader, false, font, ghost))
+                .unwrap();
+            terminal.backend().buffer().clone()
+        };
+
+        let plain = render(false);
+        assert_eq!(
+            ghost_count(&plain, width, word_rows),
+            0,
+            "no ghost without --ghost"
+        );
+        assert_eq!(red_start(&plain, width, font.rows()), Some(32));
+
+        let ghosted = render(true);
+        assert!(
+            ghost_count(&ghosted, width, word_rows) > 0,
+            "the previous word should show as shade"
+        );
+        // The current word still wins: its pivot stays red on the same columns.
+        assert_eq!(red_start(&ghosted, width, font.rows()), Some(32));
     }
 }

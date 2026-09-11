@@ -38,4 +38,9 @@ pub struct Args {
     /// Shorthand for `--font half-height`.
     #[arg(short, long)]
     pub big: bool,
+
+    /// Overlay the previous word behind the current one, shaded. Requires a
+    /// pixel font (see `--font`/`--big`), and is likely to hurt legibility.
+    #[arg(long)]
+    pub ghost: bool,
 }

@@ -25,6 +25,11 @@ impl Reader {
         self.words.get(self.index)
     }
 
+    /// The word shown just before the current one, if any.
+    pub fn previous(&self) -> Option<&String> {
+        self.index.checked_sub(1).and_then(|i| self.words.get(i))
+    }
+
     pub fn advance(&mut self) {
         self.index += 1;
     }
@@ -91,6 +96,16 @@ mod tests {
         assert_eq!(r.current().map(String::as_str), Some("two"));
         r.advance();
         assert_eq!(r.current(), None);
+    }
+
+    #[test]
+    fn previous_tracks_the_word_before_the_current_one() {
+        let mut r = reader(&["one", "two"], 300);
+        assert_eq!(r.previous(), None);
+        r.advance();
+        assert_eq!(r.previous().map(String::as_str), Some("one"));
+        r.advance();
+        assert_eq!(r.previous().map(String::as_str), Some("two"));
     }
 
     #[test]

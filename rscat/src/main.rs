@@ -32,6 +32,13 @@ fn main() -> io::Result<()> {
         (_, font) => font,
     };
 
+    if args.ghost && font == ui::Font::Normal {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--ghost requires a pixel font: use --big or --font <size>",
+        ));
+    }
+
     if reader.is_empty() {
         eprintln!("rscat: no words to read");
         Ok(())
@@ -42,7 +49,7 @@ fn main() -> io::Result<()> {
             viewport: Viewport::Inline(ui::height(font)),
         };
         let mut terminal = ratatui::init_with_options(options);
-        let result = run(&mut terminal, &mut reader, font);
+        let result = run(&mut terminal, &mut reader, font, args.ghost);
         ratatui::restore();
         result
     }
@@ -62,11 +69,12 @@ fn run(
     terminal: &mut ratatui::DefaultTerminal,
     reader: &mut Reader,
     font: ui::Font,
+    ghost: bool,
 ) -> io::Result<()> {
     let mut paused = false;
 
     while reader.current().is_some() {
-        terminal.draw(|frame| ui::draw(frame, &*reader, paused, font))?;
+        terminal.draw(|frame| ui::draw(frame, &*reader, paused, font, ghost))?;
 
         let control = if paused {
             wait_for_event()?

@@ -71,7 +71,7 @@ fn render_stats(frame: &mut Frame, reader: &Reader, area: Rect) {
     let gauge = Gauge::default()
         .ratio(ratio)
         .label(label)
-        .gauge_style(Style::new().fg(Color::Blue));
+        .gauge_style(Style::new().fg(Color::DarkGray));
     frame.render_widget(gauge, area);
 }
 
@@ -93,7 +93,11 @@ mod tests {
     #[test]
     fn renders_word_and_combined_stats_line() {
         let mut terminal = Terminal::new(TestBackend::new(WIDTH, HEIGHT)).unwrap();
-        let reader = Reader::new(vec!["fox".to_string()], 60);
+        let reader = Reader::new(
+            vec!["fox".to_string()],
+            60,
+            crate::timing::Pauses::default(),
+        );
         terminal.draw(|frame| draw(frame, &reader)).unwrap();
         let buffer = terminal.backend().buffer();
 
@@ -116,7 +120,7 @@ mod tests {
     fn stats_background_fills_with_progress() {
         let mut terminal = Terminal::new(TestBackend::new(WIDTH, HEIGHT)).unwrap();
         let words: Vec<String> = ["a", "b", "c", "d"].iter().map(|w| w.to_string()).collect();
-        let mut reader = Reader::new(words, 60);
+        let mut reader = Reader::new(words, 60, crate::timing::Pauses::default());
         reader.advance();
         reader.advance();
         terminal.draw(|frame| draw(frame, &reader)).unwrap();

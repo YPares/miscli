@@ -1,18 +1,23 @@
 use std::time::Duration;
 
-/// Reading state: the full word list, the current position and the speed.
+use crate::timing::{self, Pauses};
+
+/// Reading state: the full word list, the current position, the speed and the
+/// punctuation-pause configuration.
 pub struct Reader {
     words: Vec<String>,
     index: usize,
     wpm: u32,
+    pauses: Pauses,
 }
 
 impl Reader {
-    pub fn new(words: Vec<String>, wpm: u32) -> Self {
+    pub fn new(words: Vec<String>, wpm: u32, pauses: Pauses) -> Self {
         Self {
             words,
             index: 0,
             wpm,
+            pauses,
         }
     }
 
@@ -40,6 +45,15 @@ impl Reader {
         self.wpm
     }
 
+    /// How long the current word should stay on screen, including any
+    /// punctuation pause. Zero once the text is exhausted.
+    pub fn tick(&self) -> Duration {
+        match self.current() {
+            Some(word) => timing::word_delay(word, self.wpm, self.pauses),
+            None => Duration::ZERO,
+        }
+    }
+
     /// Fraction of the text already streamed, in `0.0..=1.0`.
     pub fn progress_ratio(&self) -> f64 {
         if self.words.is_empty() {
@@ -49,7 +63,8 @@ impl Reader {
         }
     }
 
-    /// Estimated time left at the configured speed.
+    /// Estimated time left at the configured speed. This ignores punctuation
+    /// pauses, so it is a lower bound on the real remaining time.
     pub fn remaining(&self) -> Duration {
         let remaining_words = self.words.len().saturating_sub(self.index);
         Duration::from_secs_f64(remaining_words as f64 * 60.0 / f64::from(self.wpm))
@@ -61,7 +76,11 @@ mod tests {
     use super::*;
 
     fn reader(words: &[&str], wpm: u32) -> Reader {
-        Reader::new(words.iter().map(|w| (*w).to_string()).collect(), wpm)
+        Reader::new(
+            words.iter().map(|w| (*w).to_string()).collect(),
+            wpm,
+            Pauses::default(),
+        )
     }
 
     #[test]
@@ -95,5 +114,13 @@ mod tests {
         // 600 words left at 300 wpm = 2 minutes.
         let r = reader(&vec!["w"; 600], 300);
         assert_eq!(r.remaining(), Duration::from_secs(120));
+    }
+
+    #[test]
+    fn tick_includes_punctuation_pause() {
+        assert_eq!(reader(&["dog"], 300).tick(), Duration::from_millis(200));
+        assert_eq!(reader(&["dog,"], 300).tick(), Duration::from_millis(300));
+        assert_eq!(reader(&["dog."], 300).tick(), Duration::from_millis(400));
+        assert_eq!(reader(&[], 300).tick(), Duration::ZERO);
     }
 }

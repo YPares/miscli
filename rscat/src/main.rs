@@ -18,7 +18,11 @@ use crate::cli::Args;
 fn main() -> io::Result<()> {
     let args = Args::parse();
     let words = text::load_words(args.file.as_deref())?;
-    let mut reader = Reader::new(words, args.wpm);
+    let pauses = timing::Pauses {
+        clause: args.clause_pause,
+        sentence: args.sentence_pause,
+    };
+    let mut reader = Reader::new(words, args.wpm, pauses);
 
     if reader.is_empty() {
         eprintln!("rscat: no words to read");
@@ -37,9 +41,8 @@ fn main() -> io::Result<()> {
 }
 
 fn run(terminal: &mut ratatui::DefaultTerminal, reader: &mut Reader) -> io::Result<()> {
-    let tick = Duration::from_millis(timing::ms_per_word(reader.wpm()));
-
     while reader.current().is_some() {
+        let tick = reader.tick();
         terminal.draw(|frame| ui::draw(frame, &*reader))?;
         if wait_for_tick(tick)? {
             return Ok(());

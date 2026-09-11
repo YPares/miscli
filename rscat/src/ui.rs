@@ -12,12 +12,12 @@ use crate::timing;
 /// Must match the vertical layout in [`draw`].
 pub const HEIGHT: u16 = 2;
 
-pub fn draw(frame: &mut Frame, reader: &Reader) {
+pub fn draw(frame: &mut Frame, reader: &Reader, paused: bool) {
     let [stage, stats] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(frame.area());
 
     render_word(frame, reader, stage);
-    render_stats(frame, reader, stats);
+    render_stats(frame, reader, stats, paused);
 }
 
 fn render_word(frame: &mut Frame, reader: &Reader, stage: Rect) {
@@ -55,10 +55,11 @@ fn word_line(word: &str, stage: Rect) -> Line<'static> {
 
 /// Draws the stats as the label of a gauge, so the fill behind the text acts
 /// as the progress bar and no separate percentage is shown.
-fn render_stats(frame: &mut Frame, reader: &Reader, area: Rect) {
+fn render_stats(frame: &mut Frame, reader: &Reader, area: Rect, paused: bool) {
     let position = reader.index().min(reader.len());
+    let marker = if paused { "PAUSED   " } else { "" };
     let text = format!(
-        "{}/{}   {} wpm   ETA {}",
+        "{marker}{}/{}   {} wpm   ETA {}",
         position,
         reader.len(),
         reader.wpm(),
@@ -94,7 +95,7 @@ mod tests {
     fn renders_word_and_combined_stats_line() {
         let mut terminal = Terminal::new(TestBackend::new(WIDTH, HEIGHT)).unwrap();
         let reader = Reader::new(vec!["fox".to_string()], 60, crate::timing::Pace::default());
-        terminal.draw(|frame| draw(frame, &reader)).unwrap();
+        terminal.draw(|frame| draw(frame, &reader, false)).unwrap();
         let buffer = terminal.backend().buffer();
 
         // Word row: pivot "o" anchored at the horizontal center (x = 15).
@@ -110,6 +111,7 @@ mod tests {
         assert!(stats.contains("0/1"), "stats line: {stats:?}");
         assert!(stats.contains("60 wpm"), "stats line: {stats:?}");
         assert!(!stats.contains('%'), "percentage should be gone: {stats:?}");
+        assert!(!stats.contains("PAUSED"), "not paused: {stats:?}");
     }
 
     #[test]
@@ -119,12 +121,21 @@ mod tests {
         let mut reader = Reader::new(words, 60, crate::timing::Pace::default());
         reader.advance();
         reader.advance();
-        terminal.draw(|frame| draw(frame, &reader)).unwrap();
+        terminal.draw(|frame| draw(frame, &reader, false)).unwrap();
         let buffer = terminal.backend().buffer();
 
         // Half progress: leftmost cell is filled, rightmost is not.
         assert_eq!(buffer.cell((0, 1)).unwrap().symbol(), "█");
         assert_eq!(buffer.cell((WIDTH - 1, 1)).unwrap().symbol(), " ");
         assert!(row(buffer, 1).contains("2/4"));
+    }
+
+    #[test]
+    fn stats_line_marks_paused_state() {
+        let mut terminal = Terminal::new(TestBackend::new(WIDTH, HEIGHT)).unwrap();
+        let reader = Reader::new(vec!["fox".to_string()], 60, crate::timing::Pace::default());
+        terminal.draw(|frame| draw(frame, &reader, true)).unwrap();
+        let stats = row(terminal.backend().buffer(), 1);
+        assert!(stats.contains("PAUSED"), "stats line: {stats:?}");
     }
 }

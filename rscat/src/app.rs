@@ -1,23 +1,31 @@
 use std::time::Duration;
 
+use crate::frequency;
 use crate::timing::{self, Pace};
 
-/// Reading state: the full word list, the current position, the speed and the
-/// timing/pause configuration.
+/// Reading state: the word list, current position, speed and timing config,
+/// plus the in-text occurrence counts used for the rarity factor.
 pub struct Reader {
     words: Vec<String>,
     index: usize,
     wpm: u32,
     pace: Pace,
+    /// Occurrences of each word in the whole text, aligned with `words`.
+    counts: Vec<u32>,
+    /// The largest value in `counts`.
+    max_count: u32,
 }
 
 impl Reader {
     pub fn new(words: Vec<String>, wpm: u32, pace: Pace) -> Self {
+        let (counts, max_count) = frequency::analyze(&words);
         Self {
             words,
             index: 0,
             wpm,
             pace,
+            counts,
+            max_count,
         }
     }
 
@@ -50,11 +58,17 @@ impl Reader {
         self.wpm
     }
 
-    /// How long the current word should stay on screen, including any
-    /// punctuation pause and length scaling. Zero once the text is exhausted.
+    /// How long the current word should stay on screen, including punctuation,
+    /// length and rarity scaling. Zero once the text is exhausted.
     pub fn tick(&self) -> Duration {
         match self.current() {
-            Some(word) => timing::word_delay(word, self.wpm, self.pace),
+            Some(word) => timing::word_delay(
+                word,
+                self.wpm,
+                self.pace,
+                self.counts[self.index],
+                self.max_count,
+            ),
             None => Duration::ZERO,
         }
     }
@@ -68,8 +82,8 @@ impl Reader {
         }
     }
 
-    /// Estimated time left at the configured speed. This ignores punctuation
-    /// and length pauses, so it is a lower bound on the real remaining time.
+    /// Estimated time left at the configured speed. This ignores all pauses and
+    /// scaling, so it is a lower bound on the real remaining time.
     pub fn remaining(&self) -> Duration {
         let remaining_words = self.words.len().saturating_sub(self.index);
         Duration::from_secs_f64(remaining_words as f64 * 60.0 / f64::from(self.wpm))
@@ -133,9 +147,10 @@ mod tests {
 
     #[test]
     fn tick_includes_punctuation_pause() {
-        // Length term disabled so the multiples are exact.
+        // Length and rarity disabled so the multiples are exact.
         let pace = Pace {
             length: 0.0,
+            rarity: 0.0,
             ..Pace::default()
         };
         let reader = |words: &[&str]| -> Reader {
@@ -153,9 +168,28 @@ mod tests {
             clause: 1.0,
             sentence: 1.0,
             length: 0.5,
+            rarity: 0.0,
         };
         // 1 + 0.5*sqrt(4) = 2.0 -> 400ms at 300 wpm.
         let r = Reader::new(vec!["abcd".to_string()], 300, pace);
         assert_eq!(r.tick(), Duration::from_millis(400));
+    }
+
+    #[test]
+    fn tick_slows_down_words_that_are_rare_in_the_text() {
+        let pace = Pace {
+            clause: 1.0,
+            sentence: 1.0,
+            length: 0.0,
+            rarity: 1.0,
+        };
+        // "rare" occurs once where the max is 3, so rarity_penalty = 0.5 and the
+        // multiplier is 1.5 -> 300ms at 300 wpm.
+        let words: Vec<String> = ["rare", "common", "common", "common"]
+            .iter()
+            .map(|w| (*w).to_string())
+            .collect();
+        let r = Reader::new(words, 300, pace);
+        assert_eq!(r.tick(), Duration::from_millis(300));
     }
 }

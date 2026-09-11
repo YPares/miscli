@@ -1,5 +1,6 @@
 mod app;
 mod cli;
+mod frequency;
 mod orp;
 mod text;
 mod timing;
@@ -22,6 +23,7 @@ fn main() -> io::Result<()> {
         clause: args.clause,
         sentence: args.sentence,
         length: args.length,
+        rarity: args.rarity,
     };
     let mut reader = Reader::new(words, args.wpm, pace);
 

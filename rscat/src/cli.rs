@@ -31,6 +31,11 @@ pub struct Args {
     #[arg(short, long, default_value_t = timing::DEFAULT_LENGTH_FACTOR)]
     pub length: f64,
 
+    /// Extra display time for words that are rare within the text, counted
+    /// relative to its most frequent word. 0 disables it.
+    #[arg(short, long, default_value_t = timing::DEFAULT_RARITY)]
+    pub rarity: f64,
+
     /// Size of the current word.
     #[arg(short, long, value_enum, default_value = "normal")]
     pub font: Font,

@@ -27,10 +27,9 @@ fn main() -> io::Result<()> {
     };
     let mut reader = Reader::new(words, args.wpm, pace);
 
-    // `--big` is a shorthand for the half-height pixel font, unless an explicit
-    // non-default `--font` was requested.
+    // `--big` is a shorthand, unless an explicit non-default `--font` was requested.
     let font = match (args.big, args.font) {
-        (true, ui::Font::Normal) => ui::Font::HalfHeight,
+        (true, ui::Font::Normal) => ui::Font::Sextant,
         (_, font) => font,
     };
 

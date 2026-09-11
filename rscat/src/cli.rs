@@ -40,7 +40,7 @@ pub struct Args {
     #[arg(short, long, value_enum, default_value = "normal")]
     pub font: Font,
 
-    /// Shorthand for `--font half-height`.
+    /// Shorthand for `--font sextant`.
     #[arg(short, long)]
     pub big: bool,
 

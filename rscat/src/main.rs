@@ -25,6 +25,13 @@ fn main() -> io::Result<()> {
     };
     let mut reader = Reader::new(words, args.wpm, pace);
 
+    // `--big` is a shorthand for the half-height pixel font, unless an explicit
+    // non-default `--font` was requested.
+    let font = match (args.big, args.font) {
+        (true, ui::Font::Normal) => ui::Font::HalfHeight,
+        (_, font) => font,
+    };
+
     if reader.is_empty() {
         eprintln!("rscat: no words to read");
         Ok(())
@@ -32,10 +39,10 @@ fn main() -> io::Result<()> {
         // Inline viewport: no alternate screen, so the rows stay in the
         // normal terminal flow instead of taking over the whole window.
         let options = TerminalOptions {
-            viewport: Viewport::Inline(ui::HEIGHT),
+            viewport: Viewport::Inline(ui::height(font)),
         };
         let mut terminal = ratatui::init_with_options(options);
-        let result = run(&mut terminal, &mut reader);
+        let result = run(&mut terminal, &mut reader, font);
         ratatui::restore();
         result
     }
@@ -51,11 +58,15 @@ enum Control {
     Quit,
 }
 
-fn run(terminal: &mut ratatui::DefaultTerminal, reader: &mut Reader) -> io::Result<()> {
+fn run(
+    terminal: &mut ratatui::DefaultTerminal,
+    reader: &mut Reader,
+    font: ui::Font,
+) -> io::Result<()> {
     let mut paused = false;
 
     while reader.current().is_some() {
-        terminal.draw(|frame| ui::draw(frame, &*reader, paused))?;
+        terminal.draw(|frame| ui::draw(frame, &*reader, paused, font))?;
 
         let control = if paused {
             wait_for_event()?

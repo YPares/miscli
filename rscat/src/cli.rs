@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use crate::timing;
+use crate::ui::Font;
 
 /// RSVP speed-reader for plain text.
 #[derive(Parser, Debug)]
@@ -29,4 +30,12 @@ pub struct Args {
     /// pasky/speedread's `$lentime`. 0 disables it.
     #[arg(short, long, default_value_t = timing::DEFAULT_LENGTH_FACTOR)]
     pub length: f64,
+
+    /// Size of the current word.
+    #[arg(short, long, value_enum, default_value = "normal")]
+    pub font: Font,
+
+    /// Shorthand for `--font half-height`.
+    #[arg(short, long)]
+    pub big: bool,
 }

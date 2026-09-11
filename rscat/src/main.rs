@@ -19,9 +19,9 @@ fn main() -> io::Result<()> {
     let args = Args::parse();
     let words = text::load_words(args.file.as_deref())?;
     let pace = timing::Pace {
-        clause: args.clause_pause,
-        sentence: args.sentence_pause,
-        length: args.length_pause,
+        clause: args.clause,
+        sentence: args.sentence,
+        length: args.length,
     };
     let mut reader = Reader::new(words, args.wpm, pace);
 

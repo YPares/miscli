@@ -1,6 +1,6 @@
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Style, Stylize};
+use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Gauge, Paragraph};
 
@@ -8,21 +8,16 @@ use crate::app::Reader;
 use crate::orp;
 use crate::timing;
 
-/// Rows needed by the UI: word, progress bar, stats.
+/// Rows needed by the UI: the word and the combined stats/progress line.
 /// Must match the vertical layout in [`draw`].
-pub const HEIGHT: u16 = 3;
+pub const HEIGHT: u16 = 2;
 
 pub fn draw(frame: &mut Frame, reader: &Reader) {
-    let [stage, bar, status] = Layout::vertical([
-        Constraint::Fill(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ])
-    .areas(frame.area());
+    let [stage, stats] =
+        Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(frame.area());
 
     render_word(frame, reader, stage);
-    render_progress(frame, reader, bar);
-    render_status(frame, reader, status);
+    render_stats(frame, reader, stats);
 }
 
 fn render_word(frame: &mut Frame, reader: &Reader, stage: Rect) {
@@ -36,8 +31,8 @@ fn render_word(frame: &mut Frame, reader: &Reader, stage: Rect) {
 }
 
 /// Builds the word line so its pivot character lands on the horizontal center
-/// of the stage, aligning with the centered gauge label and stats. The whole
-/// word is clamped inside the stage.
+/// of the stage, aligning with the centered stats. The whole word is clamped
+/// inside the stage.
 fn word_line(word: &str, stage: Rect) -> Line<'static> {
     let (left, pivot, right) = orp::split_word(word);
     let left_width = left.chars().count() as u16;
@@ -58,15 +53,9 @@ fn word_line(word: &str, stage: Rect) -> Line<'static> {
     ])
 }
 
-fn render_progress(frame: &mut Frame, reader: &Reader, area: Rect) {
-    let ratio = reader.progress_ratio().clamp(0.0, 1.0);
-    let gauge = Gauge::default()
-        .ratio(ratio)
-        .label(format!("{:.0}%", ratio * 100.0));
-    frame.render_widget(gauge, area);
-}
-
-fn render_status(frame: &mut Frame, reader: &Reader, area: Rect) {
+/// Draws the stats as the label of a gauge, so the fill behind the text acts
+/// as the progress bar and no separate percentage is shown.
+fn render_stats(frame: &mut Frame, reader: &Reader, area: Rect) {
     let position = reader.index().min(reader.len());
     let text = format!(
         "{}/{}   {} wpm   ETA {}",
@@ -75,7 +64,15 @@ fn render_status(frame: &mut Frame, reader: &Reader, area: Rect) {
         reader.wpm(),
         timing::format_eta(reader.remaining()),
     );
-    frame.render_widget(Paragraph::new(text).centered().dim(), area);
+    let ratio = reader.progress_ratio().clamp(0.0, 1.0);
+    // The gauge tints the whole line with its fill colour, so force the label
+    // back to the default foreground; only the fill behind it is coloured.
+    let label = Span::styled(text, Style::new().fg(Color::Reset));
+    let gauge = Gauge::default()
+        .ratio(ratio)
+        .label(label)
+        .gauge_style(Style::new().fg(Color::Blue));
+    frame.render_widget(gauge, area);
 }
 
 #[cfg(test)]
@@ -94,14 +91,13 @@ mod tests {
     }
 
     #[test]
-    fn renders_three_rows_with_pivot_and_status() {
+    fn renders_word_and_combined_stats_line() {
         let mut terminal = Terminal::new(TestBackend::new(WIDTH, HEIGHT)).unwrap();
         let reader = Reader::new(vec!["fox".to_string()], 60);
         terminal.draw(|frame| draw(frame, &reader)).unwrap();
         let buffer = terminal.backend().buffer();
 
-        // Word row: pivot "o" anchored at the horizontal center (x = 15),
-        // on the same axis as the centered gauge label and stats.
+        // Word row: pivot "o" anchored at the horizontal center (x = 15).
         assert_eq!(buffer.cell((14, 0)).unwrap().symbol(), "f");
         assert_eq!(buffer.cell((15, 0)).unwrap().symbol(), "o");
         assert_eq!(buffer.cell((16, 0)).unwrap().symbol(), "x");
@@ -109,14 +105,26 @@ mod tests {
         assert!(pivot.modifier.contains(Modifier::BOLD));
         assert_eq!(pivot.fg, Color::Red);
 
-        // Progress bar row and stats row.
-        assert!(
-            row(buffer, 1).contains("0%"),
-            "progress row: {:?}",
-            row(buffer, 1)
-        );
-        let status = row(buffer, 2);
-        assert!(status.contains("0/1"), "status row: {status:?}");
-        assert!(status.contains("60 wpm"), "status row: {status:?}");
+        // Combined line: stats text, and no explicit percentage.
+        let stats = row(buffer, 1);
+        assert!(stats.contains("0/1"), "stats line: {stats:?}");
+        assert!(stats.contains("60 wpm"), "stats line: {stats:?}");
+        assert!(!stats.contains('%'), "percentage should be gone: {stats:?}");
+    }
+
+    #[test]
+    fn stats_background_fills_with_progress() {
+        let mut terminal = Terminal::new(TestBackend::new(WIDTH, HEIGHT)).unwrap();
+        let words: Vec<String> = ["a", "b", "c", "d"].iter().map(|w| w.to_string()).collect();
+        let mut reader = Reader::new(words, 60);
+        reader.advance();
+        reader.advance();
+        terminal.draw(|frame| draw(frame, &reader)).unwrap();
+        let buffer = terminal.backend().buffer();
+
+        // Half progress: leftmost cell is filled, rightmost is not.
+        assert_eq!(buffer.cell((0, 1)).unwrap().symbol(), "█");
+        assert_eq!(buffer.cell((WIDTH - 1, 1)).unwrap().symbol(), " ");
+        assert!(row(buffer, 1).contains("2/4"));
     }
 }

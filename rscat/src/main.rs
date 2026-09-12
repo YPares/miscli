@@ -103,10 +103,13 @@ fn run(
             let start = Instant::now();
             let tick = reader.tick();
             let deadline = start + tick;
-            let ghost_deadline = start + ghost_duration(tick, ghost);
+            // The ghost lasts a fraction of the *previous* word's display time,
+            // so a word shown longer leaves a longer trail; it can never outlast
+            // the current word.
+            let ghost_span = ghost_duration(reader.previous_tick(), tick, ghost);
 
-            if ghost_on {
-                match play_phase(terminal, reader, font, true, ghost_deadline)? {
+            if !ghost_span.is_zero() {
+                match play_phase(terminal, reader, font, true, start + ghost_span)? {
                     Control::Timeout => {}
                     Control::Quit => return Ok(()),
                     Control::TogglePause => {
@@ -117,7 +120,7 @@ fn run(
                 }
             }
 
-            if ghost < 1.0 {
+            if ghost_span < tick {
                 match play_phase(terminal, reader, font, false, deadline)? {
                     Control::Timeout => reader.advance(),
                     Control::Quit => return Ok(()),
@@ -152,9 +155,11 @@ fn play_phase(
     }
 }
 
-/// How long the ghost is shown within a word's display time.
-fn ghost_duration(tick: Duration, fraction: f64) -> Duration {
-    tick.mul_f64(fraction.clamp(0.0, 1.0))
+/// How long the previous word's ghost is shown while the current word is on
+/// screen: a fraction of the *previous* word's display time, capped at the
+/// current word's own display time.
+fn ghost_duration(previous: Duration, current: Duration, fraction: f64) -> Duration {
+    previous.mul_f64(fraction.clamp(0.0, 1.0)).min(current)
 }
 
 /// Sleeps until `deadline`, handling input in the meantime.
@@ -281,12 +286,19 @@ mod tests {
     }
 
     #[test]
-    fn ghost_duration_is_a_fraction_of_the_tick() {
-        let tick = Duration::from_millis(1000);
-        assert_eq!(ghost_duration(tick, 0.0), Duration::ZERO);
-        assert_eq!(ghost_duration(tick, 0.25), Duration::from_millis(250));
-        assert_eq!(ghost_duration(tick, 1.0), tick);
-        assert_eq!(ghost_duration(tick, 1.5), tick); // clamped
+    fn ghost_duration_follows_the_previous_word_and_caps_at_the_current() {
+        let previous = Duration::from_millis(1000);
+        let current = Duration::from_millis(800);
+        assert_eq!(ghost_duration(previous, current, 0.0), Duration::ZERO);
+        assert_eq!(
+            ghost_duration(previous, current, 0.25),
+            Duration::from_millis(250)
+        );
+        assert_eq!(ghost_duration(previous, current, 1.0), current); // capped
+        assert_eq!(ghost_duration(Duration::ZERO, current, 1.0), Duration::ZERO);
+        // Capped by the current word when the previous one was much longer.
+        let short = Duration::from_millis(200);
+        assert_eq!(ghost_duration(previous, short, 0.5), short);
     }
 
     #[test]

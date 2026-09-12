@@ -45,7 +45,8 @@ pub struct Args {
     pub big: bool,
 
     /// Overlay the previous word behind the current one for this fraction
-    /// (0..1) of the word's display time; 0 disables it. Requires a pixel font.
+    /// (0..1) of the *previous* word's display time; 0 disables it. Requires a
+    /// pixel font.
     #[arg(long, default_value_t = 0.0, value_parser = parse_fraction)]
     pub ghost: f64,
 }

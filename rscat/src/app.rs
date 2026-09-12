@@ -82,12 +82,26 @@ impl Reader {
     /// How long the current word should stay on screen, including punctuation,
     /// length and rarity scaling. Zero once the text is exhausted.
     pub fn tick(&self) -> Duration {
-        match self.current() {
+        self.tick_at(self.index)
+    }
+
+    /// How long the *previous* word would be shown for at the current speed;
+    /// zero at the start of the text. Used to size that word's ghost.
+    pub fn previous_tick(&self) -> Duration {
+        match self.index.checked_sub(1) {
+            Some(index) => self.tick_at(index),
+            None => Duration::ZERO,
+        }
+    }
+
+    /// Display time of the word at `index`, or zero if there is none.
+    fn tick_at(&self, index: usize) -> Duration {
+        match self.words.get(index) {
             Some(word) => timing::word_delay(
                 word,
                 self.wpm,
                 self.pace,
-                self.counts[self.index],
+                self.counts[index],
                 self.max_count,
             ),
             None => Duration::ZERO,
@@ -239,5 +253,20 @@ mod tests {
             .collect();
         let r = Reader::new(words, 300, pace);
         assert_eq!(r.tick(), Duration::from_millis(300));
+    }
+
+    #[test]
+    fn previous_tick_is_the_previous_words_display_time() {
+        // Length and rarity off so only the punctuation pause matters.
+        let pace = Pace {
+            length: 0.0,
+            rarity: 0.0,
+            ..Pace::default()
+        };
+        let words: Vec<String> = ["dog.", "cat"].iter().map(|w| (*w).to_string()).collect();
+        let mut r = Reader::new(words, 300, pace);
+        assert_eq!(r.previous_tick(), Duration::ZERO); // no previous word yet
+        r.advance();
+        assert_eq!(r.previous_tick(), Duration::from_millis(400)); // "dog." is 2x
     }
 }

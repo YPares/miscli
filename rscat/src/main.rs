@@ -7,7 +7,7 @@ mod timing;
 mod ui;
 
 use std::io;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use clap::Parser;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
@@ -33,7 +33,7 @@ fn main() -> io::Result<()> {
         (_, font) => font,
     };
 
-    if args.ghost && font == ui::Font::Normal {
+    if args.ghost > 0.0 && font == ui::Font::Normal {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "--ghost requires a pixel font: use --big or --font <size>",
@@ -56,10 +56,10 @@ fn main() -> io::Result<()> {
     }
 }
 
-/// What the event loop should do after waiting for input or the next tick.
+/// What the event loop should do after waiting for input or a deadline.
 enum Control {
-    /// Enough time elapsed: show the next word.
-    Advance,
+    /// The deadline was reached.
+    Timeout,
     /// Move one word back (paused only).
     Previous,
     /// Move one word forward (paused only).
@@ -74,17 +74,20 @@ enum Control {
     Quit,
 }
 
+/// `ghost` is the fraction of a word's display time for which the previous
+/// word's ghost is shown.
 fn run(
     terminal: &mut ratatui::DefaultTerminal,
     reader: &mut Reader,
     font: ui::Font,
-    ghost: bool,
+    ghost: f64,
 ) -> io::Result<()> {
     let mut paused = false;
+    let ghost_on = ghost > 0.0;
 
     while reader.current().is_some() {
         if paused {
-            terminal.draw(|frame| ui::draw(frame, &*reader, true, font, ghost))?;
+            terminal.draw(|frame| ui::draw(frame, &*reader, true, font, ghost_on))?;
             match wait_for_event()? {
                 Control::Quit => return Ok(()),
                 Control::TogglePause => paused = false,
@@ -92,40 +95,74 @@ fn run(
                 Control::Next => reader.step_forward(),
                 Control::Faster => reader.faster(timing::WPM_STEP),
                 Control::Slower => reader.slower(timing::WPM_STEP),
-                Control::Advance => {}
+                Control::Timeout => {}
             }
         } else {
-            // Keep the deadline fixed across speed changes so the current word
-            // is not restarted when `+`/`-` is pressed mid-word.
-            let deadline = Instant::now() + reader.tick();
-            loop {
-                terminal.draw(|frame| ui::draw(frame, &*reader, false, font, ghost))?;
-                match wait_for_tick(deadline)? {
-                    Control::Advance => {
-                        reader.advance();
-                        break;
-                    }
+            // Deadlines are fixed per word, so `+`/`-` or a pause mid-word does
+            // not restart the current word's timer.
+            let start = Instant::now();
+            let tick = reader.tick();
+            let deadline = start + tick;
+            let ghost_deadline = start + ghost_duration(tick, ghost);
+
+            if ghost_on {
+                match play_phase(terminal, reader, font, true, ghost_deadline)? {
+                    Control::Timeout => {}
                     Control::Quit => return Ok(()),
                     Control::TogglePause => {
                         paused = true;
-                        break;
+                        continue;
                     }
-                    Control::Faster => reader.faster(timing::WPM_STEP),
-                    Control::Slower => reader.slower(timing::WPM_STEP),
-                    Control::Previous | Control::Next => {}
+                    Control::Previous | Control::Next | Control::Faster | Control::Slower => {}
                 }
+            }
+
+            if ghost < 1.0 {
+                match play_phase(terminal, reader, font, false, deadline)? {
+                    Control::Timeout => reader.advance(),
+                    Control::Quit => return Ok(()),
+                    Control::TogglePause => paused = true,
+                    Control::Previous | Control::Next | Control::Faster | Control::Slower => {}
+                }
+            } else {
+                // Ghost held for the whole word: no plain phase to draw.
+                reader.advance();
             }
         }
     }
     Ok(())
 }
 
+/// Shows the current word (with or without its ghost) until `deadline`,
+/// redrawing on speed changes. Returns the [`Control`] that ended the wait.
+fn play_phase(
+    terminal: &mut ratatui::DefaultTerminal,
+    reader: &mut Reader,
+    font: ui::Font,
+    ghost: bool,
+    deadline: Instant,
+) -> io::Result<Control> {
+    loop {
+        terminal.draw(|frame| ui::draw(frame, &*reader, false, font, ghost))?;
+        match wait_until(deadline)? {
+            Control::Faster => reader.faster(timing::WPM_STEP),
+            Control::Slower => reader.slower(timing::WPM_STEP),
+            control => return Ok(control),
+        }
+    }
+}
+
+/// How long the ghost is shown within a word's display time.
+fn ghost_duration(tick: Duration, fraction: f64) -> Duration {
+    tick.mul_f64(fraction.clamp(0.0, 1.0))
+}
+
 /// Sleeps until `deadline`, handling input in the meantime.
-fn wait_for_tick(deadline: Instant) -> io::Result<Control> {
+fn wait_until(deadline: Instant) -> io::Result<Control> {
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            return Ok(Control::Advance);
+            return Ok(Control::Timeout);
         } else if event::poll(remaining)?
             && let Some(control) = control(event::read()?, false)
         {
@@ -241,6 +278,15 @@ mod tests {
                 Some(Control::Slower)
             ));
         }
+    }
+
+    #[test]
+    fn ghost_duration_is_a_fraction_of_the_tick() {
+        let tick = Duration::from_millis(1000);
+        assert_eq!(ghost_duration(tick, 0.0), Duration::ZERO);
+        assert_eq!(ghost_duration(tick, 0.25), Duration::from_millis(250));
+        assert_eq!(ghost_duration(tick, 1.0), tick);
+        assert_eq!(ghost_duration(tick, 1.5), tick); // clamped
     }
 
     #[test]

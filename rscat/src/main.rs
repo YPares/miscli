@@ -7,7 +7,7 @@ mod timing;
 mod ui;
 
 use std::io;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use clap::Parser;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
@@ -64,6 +64,10 @@ enum Control {
     Previous,
     /// Move one word forward (paused only).
     Next,
+    /// Speed up by [`timing::WPM_STEP`].
+    Faster,
+    /// Slow down by [`timing::WPM_STEP`].
+    Slower,
     /// Toggle between paused and playing.
     TogglePause,
     /// Quit the reader.
@@ -79,28 +83,45 @@ fn run(
     let mut paused = false;
 
     while reader.current().is_some() {
-        terminal.draw(|frame| ui::draw(frame, &*reader, paused, font, ghost))?;
-
-        let control = if paused {
-            wait_for_event()?
+        if paused {
+            terminal.draw(|frame| ui::draw(frame, &*reader, true, font, ghost))?;
+            match wait_for_event()? {
+                Control::Quit => return Ok(()),
+                Control::TogglePause => paused = false,
+                Control::Previous => reader.retreat(),
+                Control::Next => reader.step_forward(),
+                Control::Faster => reader.faster(timing::WPM_STEP),
+                Control::Slower => reader.slower(timing::WPM_STEP),
+                Control::Advance => {}
+            }
         } else {
-            wait_for_tick(reader.tick())?
-        };
-
-        match control {
-            Control::Quit => return Ok(()),
-            Control::TogglePause => paused = !paused,
-            Control::Previous => reader.retreat(),
-            Control::Next => reader.step_forward(),
-            Control::Advance => reader.advance(),
+            // Keep the deadline fixed across speed changes so the current word
+            // is not restarted when `+`/`-` is pressed mid-word.
+            let deadline = Instant::now() + reader.tick();
+            loop {
+                terminal.draw(|frame| ui::draw(frame, &*reader, false, font, ghost))?;
+                match wait_for_tick(deadline)? {
+                    Control::Advance => {
+                        reader.advance();
+                        break;
+                    }
+                    Control::Quit => return Ok(()),
+                    Control::TogglePause => {
+                        paused = true;
+                        break;
+                    }
+                    Control::Faster => reader.faster(timing::WPM_STEP),
+                    Control::Slower => reader.slower(timing::WPM_STEP),
+                    Control::Previous | Control::Next => {}
+                }
+            }
         }
     }
     Ok(())
 }
 
-/// Sleeps until the next word is due, handling input in the meantime.
-fn wait_for_tick(tick: Duration) -> io::Result<Control> {
-    let deadline = Instant::now() + tick;
+/// Sleeps until `deadline`, handling input in the meantime.
+fn wait_for_tick(deadline: Instant) -> io::Result<Control> {
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
@@ -139,6 +160,10 @@ fn control(event: Event, paused: bool) -> Option<Control> {
                 Some(Control::Previous)
             } else if paused && key.code == KeyCode::Right {
                 Some(Control::Next)
+            } else if matches!(key.code, KeyCode::Char('+') | KeyCode::Char('=')) {
+                Some(Control::Faster)
+            } else if key.code == KeyCode::Char('-') {
+                Some(Control::Slower)
             } else {
                 None
             }
@@ -197,6 +222,25 @@ mod tests {
         ));
         assert!(control(press(KeyCode::Left, KeyModifiers::NONE), false).is_none());
         assert!(control(press(KeyCode::Right, KeyModifiers::NONE), false).is_none());
+    }
+
+    #[test]
+    fn speed_keys_work_while_playing_and_paused() {
+        for paused in [true, false] {
+            assert!(matches!(
+                control(press(KeyCode::Char('+'), KeyModifiers::NONE), paused),
+                Some(Control::Faster)
+            ));
+            // `+` without shift is usually the `=` key.
+            assert!(matches!(
+                control(press(KeyCode::Char('='), KeyModifiers::NONE), paused),
+                Some(Control::Faster)
+            ));
+            assert!(matches!(
+                control(press(KeyCode::Char('-'), KeyModifiers::NONE), paused),
+                Some(Control::Slower)
+            ));
+        }
     }
 
     #[test]

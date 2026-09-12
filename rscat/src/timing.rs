@@ -42,6 +42,13 @@ pub const DEFAULT_RARITY: f64 = 0.3;
 /// length or rarity term.
 pub const NORMAL_PAUSE: f64 = 1.0;
 
+/// Reading-speed bounds, shared by the CLI and by runtime speed changes.
+pub const MIN_WPM: u32 = 60;
+pub const MAX_WPM: u32 = 2000;
+
+/// How much the `+`/`-` keys change the speed at runtime.
+pub const WPM_STEP: u32 = 10;
+
 impl Default for Pace {
     fn default() -> Self {
         Self {

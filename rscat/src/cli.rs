@@ -13,7 +13,7 @@ pub struct Args {
     pub file: Option<PathBuf>,
 
     /// Reading speed in words per minute.
-    #[arg(short, long, default_value_t = 300, value_parser = clap::value_parser!(u32).range(60..=2000))]
+    #[arg(short, long, default_value_t = 300, value_parser = clap::value_parser!(u32).range(timing::MIN_WPM as i64..=timing::MAX_WPM as i64))]
     pub wpm: u32,
 
     /// Display time for words ending in `,` `;` `:` as a multiple of the plain

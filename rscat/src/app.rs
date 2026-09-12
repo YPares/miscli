@@ -53,6 +53,16 @@ impl Reader {
         self.index = (self.index + 1).min(self.words.len().saturating_sub(1));
     }
 
+    /// Increase the reading speed by `step` wpm, up to [`timing::MAX_WPM`].
+    pub fn faster(&mut self, step: u32) {
+        self.wpm = (self.wpm + step).min(timing::MAX_WPM);
+    }
+
+    /// Decrease the reading speed by `step` wpm, down to [`timing::MIN_WPM`].
+    pub fn slower(&mut self, step: u32) {
+        self.wpm = self.wpm.saturating_sub(step).max(timing::MIN_WPM);
+    }
+
     pub fn index(&self) -> usize {
         self.index
     }
@@ -145,6 +155,19 @@ mod tests {
         assert_eq!(r.current().map(String::as_str), Some("c"));
         r.retreat();
         assert_eq!(r.current().map(String::as_str), Some("b"));
+    }
+
+    #[test]
+    fn faster_and_slower_clamp_within_bounds() {
+        let mut r = reader(&["a"], 300);
+        r.faster(10);
+        assert_eq!(r.wpm(), 310);
+        r.slower(20);
+        assert_eq!(r.wpm(), 290);
+        r.slower(1000);
+        assert_eq!(r.wpm(), timing::MIN_WPM);
+        r.faster(100_000);
+        assert_eq!(r.wpm(), timing::MAX_WPM);
     }
 
     #[test]

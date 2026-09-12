@@ -60,6 +60,10 @@ fn main() -> io::Result<()> {
 enum Control {
     /// Enough time elapsed: show the next word.
     Advance,
+    /// Move one word back (paused only).
+    Previous,
+    /// Move one word forward (paused only).
+    Next,
     /// Toggle between paused and playing.
     TogglePause,
     /// Quit the reader.
@@ -86,6 +90,8 @@ fn run(
         match control {
             Control::Quit => return Ok(()),
             Control::TogglePause => paused = !paused,
+            Control::Previous => reader.retreat(),
+            Control::Next => reader.step_forward(),
             Control::Advance => reader.advance(),
         }
     }
@@ -100,7 +106,7 @@ fn wait_for_tick(tick: Duration) -> io::Result<Control> {
         if remaining.is_zero() {
             return Ok(Control::Advance);
         } else if event::poll(remaining)?
-            && let Some(control) = control(event::read()?)
+            && let Some(control) = control(event::read()?, false)
         {
             return Ok(control);
         }
@@ -110,14 +116,17 @@ fn wait_for_tick(tick: Duration) -> io::Result<Control> {
 /// Blocks until a key mapped to a [`Control`] is pressed.
 fn wait_for_event() -> io::Result<Control> {
     loop {
-        if let Some(control) = control(event::read()?) {
+        if let Some(control) = control(event::read()?, true) {
             return Ok(control);
         }
     }
 }
 
 /// Maps a terminal event to a [`Control`], if it is one we act on.
-fn control(event: Event) -> Option<Control> {
+///
+/// `paused` gates the navigation keys: moving through the text only makes sense
+/// while playback is stopped.
+fn control(event: Event, paused: bool) -> Option<Control> {
     match event {
         Event::Key(key) if key.kind == KeyEventKind::Press => {
             if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc)
@@ -126,6 +135,10 @@ fn control(event: Event) -> Option<Control> {
                 Some(Control::Quit)
             } else if key.code == KeyCode::Char(' ') {
                 Some(Control::TogglePause)
+            } else if paused && key.code == KeyCode::Left {
+                Some(Control::Previous)
+            } else if paused && key.code == KeyCode::Right {
+                Some(Control::Next)
             } else {
                 None
             }
@@ -155,27 +168,41 @@ mod tests {
     #[test]
     fn space_toggles_pause_and_quit_keys_quit() {
         assert!(matches!(
-            control(press(KeyCode::Char(' '), KeyModifiers::NONE)),
+            control(press(KeyCode::Char(' '), KeyModifiers::NONE), false),
             Some(Control::TogglePause)
         ));
         assert!(matches!(
-            control(press(KeyCode::Char('q'), KeyModifiers::NONE)),
+            control(press(KeyCode::Char('q'), KeyModifiers::NONE), false),
             Some(Control::Quit)
         ));
         assert!(matches!(
-            control(press(KeyCode::Esc, KeyModifiers::NONE)),
+            control(press(KeyCode::Esc, KeyModifiers::NONE), false),
             Some(Control::Quit)
         ));
         assert!(matches!(
-            control(press(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            control(press(KeyCode::Char('c'), KeyModifiers::CONTROL), false),
             Some(Control::Quit)
         ));
     }
 
     #[test]
+    fn arrows_navigate_only_when_paused() {
+        assert!(matches!(
+            control(press(KeyCode::Left, KeyModifiers::NONE), true),
+            Some(Control::Previous)
+        ));
+        assert!(matches!(
+            control(press(KeyCode::Right, KeyModifiers::NONE), true),
+            Some(Control::Next)
+        ));
+        assert!(control(press(KeyCode::Left, KeyModifiers::NONE), false).is_none());
+        assert!(control(press(KeyCode::Right, KeyModifiers::NONE), false).is_none());
+    }
+
+    #[test]
     fn unmatched_and_released_keys_are_ignored() {
-        assert!(control(press(KeyCode::Char('x'), KeyModifiers::NONE)).is_none());
-        assert!(control(release(KeyCode::Char(' '))).is_none());
-        assert!(control(Event::Resize(80, 24)).is_none());
+        assert!(control(press(KeyCode::Char('x'), KeyModifiers::NONE), false).is_none());
+        assert!(control(release(KeyCode::Char(' ')), true).is_none());
+        assert!(control(Event::Resize(80, 24), true).is_none());
     }
 }

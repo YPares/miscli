@@ -42,6 +42,17 @@ impl Reader {
         self.index += 1;
     }
 
+    /// Step back one word, stopping at the first.
+    pub fn retreat(&mut self) {
+        self.index = self.index.saturating_sub(1);
+    }
+
+    /// Step forward one word, stopping at the last (unlike [`advance`], which
+    /// walks off the end to signal the text is finished).
+    pub fn step_forward(&mut self) {
+        self.index = (self.index + 1).min(self.words.len().saturating_sub(1));
+    }
+
     pub fn index(&self) -> usize {
         self.index
     }
@@ -120,6 +131,20 @@ mod tests {
         assert_eq!(r.previous().map(String::as_str), Some("one"));
         r.advance();
         assert_eq!(r.previous().map(String::as_str), Some("two"));
+    }
+
+    #[test]
+    fn retreat_and_step_forward_stay_within_the_text() {
+        let mut r = reader(&["a", "b", "c"], 300);
+        r.retreat(); // already at the first word
+        assert_eq!(r.current().map(String::as_str), Some("a"));
+        r.step_forward();
+        assert_eq!(r.current().map(String::as_str), Some("b"));
+        r.step_forward();
+        r.step_forward(); // clamps at the last word
+        assert_eq!(r.current().map(String::as_str), Some("c"));
+        r.retreat();
+        assert_eq!(r.current().map(String::as_str), Some("b"));
     }
 
     #[test]

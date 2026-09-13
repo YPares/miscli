@@ -188,7 +188,8 @@ fn wait_for_event() -> io::Result<Control> {
 /// Maps a terminal event to a [`Control`], if it is one we act on.
 ///
 /// `paused` gates the navigation keys: moving through the text only makes sense
-/// while playback is stopped.
+/// while playback is stopped. The speed keys are not gated, so they also work
+/// mid-playback.
 fn control(event: Event, paused: bool) -> Option<Control> {
     match event {
         Event::Key(key) if key.kind == KeyEventKind::Press => {

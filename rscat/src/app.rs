@@ -38,6 +38,9 @@ impl Reader {
         self.index.checked_sub(1).and_then(|i| self.words.get(i))
     }
 
+    /// Advance one word. Unlike [`retreat`] and [`step_forward`], this
+    /// deliberately walks off the end: playback ends when
+    /// [`current`](Self::current) becomes `None`.
     pub fn advance(&mut self) {
         self.index += 1;
     }

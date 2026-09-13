@@ -74,7 +74,8 @@ impl Font {
     }
 }
 
-/// Total rows needed by the UI: the word plus the stats line.
+/// Total rows needed by the UI (word plus stats line); sizes the inline
+/// viewport.
 pub fn height(font: Font) -> u16 {
     font.rows() + 1
 }

@@ -1,6 +1,7 @@
 [package]
 name = "rscat"
 version = "0.1.0"
+description = "RSVP speed-reader TUI"
 edition = "2024"
 
 [dependencies]

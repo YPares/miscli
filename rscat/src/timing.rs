@@ -44,7 +44,7 @@ pub const NORMAL_PAUSE: f64 = 1.0;
 
 /// Reading-speed bounds, shared by the CLI and by runtime speed changes.
 pub const MIN_WPM: u32 = 60;
-pub const MAX_WPM: u32 = 2000;
+pub const MAX_WPM: u32 = 50000;
 
 /// How much the `+`/`-` keys change the speed at runtime.
 pub const WPM_STEP: u32 = 10;
